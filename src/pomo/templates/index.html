@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ filename }} · pomo</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script defer src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/brython@3.13.0/brython.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/brython@3.13.0/brython_stdlib.js"></script>
+  </head>
+  <body onload="brython()">
+    <main id="app" v-cloak>
+      {% raw %}
+      <section class="pomodoro" aria-labelledby="timer-heading">
+        <p class="eyebrow" id="timer-heading">VISUAL TIMER / 60 MINUTES</p>
+        <div class="timer-dial" :style="{ '--remaining-angle': (remaining / 10) + 'deg' }">
+          <div class="timer-face" role="slider" tabindex="0" aria-label="Timer duration in minutes"
+               aria-valuemin="1" aria-valuemax="60" :aria-valuenow="duration / 60"
+               :aria-valuetext="(duration / 60) + ' minutes selected'"
+               @click="select_time" @keydown="dial_key">
+          <span class="dial-label" style="left: 28.00%; top: 11.89%" aria-hidden="true">5</span>
+          <span class="dial-label" style="left: 11.89%; top: 28.00%" aria-hidden="true">10</span>
+          <span class="dial-label" style="left: 6.00%; top: 50.00%" aria-hidden="true">15</span>
+          <span class="dial-label" style="left: 11.89%; top: 72.00%" aria-hidden="true">20</span>
+          <span class="dial-label" style="left: 28.00%; top: 88.11%" aria-hidden="true">25</span>
+          <span class="dial-label" style="left: 50.00%; top: 94.00%" aria-hidden="true">30</span>
+          <span class="dial-label" style="left: 72.00%; top: 88.11%" aria-hidden="true">35</span>
+          <span class="dial-label" style="left: 88.11%; top: 72.00%" aria-hidden="true">40</span>
+          <span class="dial-label" style="left: 94.00%; top: 50.00%" aria-hidden="true">45</span>
+          <span class="dial-label" style="left: 88.11%; top: 28.00%" aria-hidden="true">50</span>
+          <span class="dial-label" style="left: 72.00%; top: 11.89%" aria-hidden="true">55</span>
+          <span class="dial-label" style="left: 50.00%; top: 6.00%" aria-hidden="true">60</span>
+          <div class="timer-sector" aria-hidden="true"></div>
+          </div>
+          <button type="button" class="timer-hub" :class="{ 'is-running': running }" @click.stop="toggle_timer"
+                  :aria-label="running ? 'Pause timer' : 'Start or resume timer'"
+                  :disabled="remaining === 0">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <g v-if="running"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></g>
+              <path v-else d="M8 4 L20 12 L8 20 Z"/>
+            </svg>
+          </button>
+        </div>
+        <p v-if="timer_message" class="timer-status" role="status">{{ timer_message }}</p>
+      </section>
+      {% endraw %}
+      <section class="todo-panel" aria-label="Todos">
+      <header>
+        <div><p class="eyebrow">POMO / LOCAL TODOS</p><h1>{{ filename }}</h1></div>
+        <div class="actions">
+          <button @click="refresh" :disabled="loading || editing">Refresh</button>
+          <button @click="edit" :disabled="loading || editing || !revision">Edit file</button>
+        </div>
+      </header>
+      {% raw %}
+      <p class="summary" aria-live="polite">{{ completed }} of {{ tasks.length }} complete</p>
+      <progress :value="completed" :max="tasks.length || 1" aria-label="Completed tasks"></progress>
+      <section class="toolbar" aria-label="Filter tasks">
+        <input v-model="query" type="search" placeholder="Find a task…" aria-label="Search tasks">
+        <select v-model="status" aria-label="Task status">
+          <option value="all">All tasks</option>
+          <option value="open">Open</option>
+          <option value="done">Complete</option>
+        </select>
+      </section>
+      <form v-if="editing" class="editor" @submit.prevent="save">
+        <label for="markdown">Edit Markdown</label>
+        <textarea id="markdown" v-model="draft" :disabled="loading" spellcheck="false"></textarea>
+        <div class="actions">
+          <button type="submit" :disabled="loading">Save</button>
+          <button type="button" @click="cancel" :disabled="loading">Cancel</button>
+        </div>
+      </form>
+      <p v-if="error" class="error" role="alert">{{ error }}</p>
+      <p v-else-if="loading" role="status">Loading tasks…</p>
+      <template v-else-if="!editing">
+        <ul v-if="filtered.length" class="tasks">
+          <li v-for="task in filtered" :key="task.line" :class="{ done: task.done }"
+              :style="{ '--indent': task.indent }">
+            <input type="checkbox" :checked="task.done" disabled :aria-label="task.done ? 'Complete' : 'Open'">
+            <span>{{ task.text }}</span><small>Line {{ task.line }}</small>
+          </li>
+        </ul>
+        <p v-else-if="tasks.length">No tasks match your filters.</p>
+        <p v-else>No tasks yet. Add Markdown checkboxes to your file: <code>- [ ] My task</code></p>
+      </template>
+      {% endraw %}
+      <footer>Edits save to your todo file. Refresh to load changes made elsewhere.</footer>
+      </section>
+    </main>
+    <noscript>Enable JavaScript to view your todos.</noscript>
+    <script type="text/python">
+from browser import ajax, window
+import json
+from math import atan2, ceil, pi
+
+csrf_token = {{ csrf_token|tojson }}
+
+
+def setup(props=None, context=None):
+    # Vue needs native JS objects, not Brython's Python dict wrappers.
+    state = window.Vue.reactive(window.JSON.parse(json.dumps({
+        "tasks": [], "query": "", "status": "all", "loading": False, "error": "",
+        "content": "", "draft": "", "revision": "", "editing": False,
+        "duration": 1500, "remaining": 1500, "running": False,
+        "timer_message": ""
+    })))
+
+    deadline = 0
+    interval = None
+    audio = None
+    original_title = window.document.title
+
+    def timer_display(previous=None):
+        minutes, seconds = divmod(int(state.remaining), 60)
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def stop_interval():
+        nonlocal interval
+        if interval is not None:
+            window.clearInterval(interval)
+            interval = None
+        state.running = False
+
+    def tick():
+        if not state.running:
+            return
+        state.remaining = max(0, ceil((deadline - window.Date.now()) / 1000))
+        window.document.title = f"{timer_display()} · pomo"
+        if state.remaining == 0:
+            stop_interval()
+            state.timer_message = "Timer finished!"
+            window.document.title = f"Time's up! · {original_title}"
+            if audio is not None:
+                try:
+                    tone = audio.createOscillator()
+                    volume = audio.createGain()
+                    tone.frequency.value = 880
+                    volume.gain.value = 0.15
+                    tone.connect(volume)
+                    volume.connect(audio.destination)
+                    tone.start()
+                    tone.stop(audio.currentTime + 0.7)
+                except Exception:
+                    pass  # Visual completion still works if audio is unavailable.
+
+    def start_timer(event=None):
+        nonlocal deadline, interval, audio
+        if state.running or state.remaining == 0:
+            return
+        # Create/resume audio only during a user gesture (browser autoplay policy).
+        try:
+            if audio is None:
+                audio = window.AudioContext.new()
+            audio.resume()
+        except Exception:
+            audio = None
+        deadline = window.Date.now() + state.remaining * 1000
+        state.running = True
+        state.timer_message = ""
+        interval = window.setInterval(tick, 250)
+        tick()
+
+    def pause_timer(event=None):
+        if state.running:
+            tick()
+            stop_interval()
+
+    def toggle_timer(event=None):
+        if state.running:
+            pause_timer()
+        else:
+            start_timer()
+
+    def set_minutes(minutes):
+        stop_interval()
+        state.duration = max(1, min(60, int(minutes))) * 60
+        state.remaining = state.duration
+        state.timer_message = ""
+        window.document.title = original_title
+
+    def select_time(event):
+        bounds = event.currentTarget.getBoundingClientRect()
+        x = (event.clientX - bounds.left) / bounds.width * 2 - 1
+        y = (event.clientY - bounds.top) / bounds.height * 2 - 1
+        if x * x + y * y < 0.01 or x * x + y * y > 1.001:
+            return  # Ignore the center knob and corners outside the disk.
+        angle = atan2(-x, -y) % (2 * pi)
+        minutes = 60 if angle < 1e-9 else max(1, int(angle / (2 * pi) * 60 + 0.5))
+        set_minutes(minutes)
+
+    def dial_key(event):
+        minutes = state.duration // 60
+        if event.key in ("ArrowUp", "ArrowRight"):
+            minutes += 1
+        elif event.key in ("ArrowDown", "ArrowLeft"):
+            minutes -= 1
+        elif event.key == "Home":
+            minutes = 1
+        elif event.key == "End":
+            minutes = 60
+        else:
+            return
+        event.preventDefault()
+        set_minutes(minutes)
+
+    def received(request):
+        try:
+            payload = json.loads(request.text)
+            if request.status == 200:
+                state.tasks = window.JSON.parse(request.text).tasks
+                state.content = payload["content"]
+                state.revision = payload["revision"]
+                state.editing = False
+            else:
+                state.error = payload.get("error", "Could not load tasks.")
+        except (ValueError, TypeError):
+            state.error = "Could not load tasks. Check your connection and refresh."
+        finally:
+            state.loading = False
+
+    def refresh(event=None):
+        state.loading = True
+        state.error = ""
+        request = ajax.ajax()
+        request.bind("complete", received)
+        request.open("GET", "/api/todos", True)
+        request.send()
+
+    def edit(event=None):
+        state.draft = state.content
+        state.editing = True
+        state.error = ""
+
+    def cancel(event=None):
+        state.editing = False
+        state.error = ""
+
+    def save(event=None):
+        if state.loading:
+            return
+        state.loading = True
+        state.error = ""
+        request = ajax.ajax()
+        request.bind("complete", received)
+        request.open("PUT", "/api/todos", True)
+        request.set_header("Content-Type", "application/json")
+        request.set_header("X-Pomo-Token", csrf_token)
+        request.send(json.dumps({"content": state.draft, "revision": state.revision}))
+
+    def filtered(previous=None):
+        query = state.query.lower()
+        tasks = window.Array.new()
+        for task in state.tasks:
+            if (query in task.text.lower()
+                    and (state.status == "all"
+                         or (state.status == "done" and task.done)
+                         or (state.status == "open" and not task.done))):
+                tasks.push(task)
+        return tasks
+
+    def completed(previous=None):
+        return sum(1 for task in state.tasks if task.done)
+
+    window.Vue.onMounted(refresh)
+    result = window.Vue.toRefs(state)
+    result.filtered = window.Vue.computed(filtered)
+    result.completed = window.Vue.computed(completed)
+    result.refresh = refresh
+    result.edit = edit
+    result.cancel = cancel
+    result.save = save
+    result.timer_display = window.Vue.computed(timer_display)
+    result.start_timer = start_timer
+    result.pause_timer = pause_timer
+    result.toggle_timer = toggle_timer
+    result.select_time = select_time
+    result.dial_key = dial_key
+    result.set_minutes = set_minutes
+    return result
+
+
+options = window.Object.new()
+options.setup = setup
+window.Vue.createApp(options).mount("#app")
+    </script>
+  </body>
+</html>

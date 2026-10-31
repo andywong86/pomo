@@ -1,0 +1,38 @@
+[project]
+name = "pomo"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Andy Wong", email = "andywong86@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "flask>=3.1.3",
+]
+
+[project.scripts]
+pomo = "pomo:main"
+build = "project.tasks:build"
+test = "project.tasks:test"
+typecheck = "project.tasks:typecheck"
+lint = "project.tasks:lint"
+format = "project.tasks:format"
+clean = "project.tasks:clean"
+serve = "pomo.app:main"
+
+[build-system]
+requires = ["uv_build>=0.13.4,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.3",
+]
+
+[tool.uv.build-backend]
+source-exclude = ["src/project/**"]
+wheel-exclude = ["src/project/**"]
