@@ -35,9 +35,41 @@ def test_index(tmp_path: Path) -> None:
     response = create_app(tmp_path).test_client().get("/")
     assert response.status_code == 200
     assert b"TODO.md" in response.data
-    assert b"vue@" in response.data
+    assert b"/static/vendor/vue-3.5.13/vue.global.prod.js" in response.data
     assert b'type="text/python"' in response.data
     assert b"{{ task.text }}" in response.data
+
+
+def test_scripts_are_served_locally(tmp_path: Path) -> None:
+    from html.parser import HTMLParser
+
+    class ScriptParser(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.sources: list[str] = []
+
+        def handle_starttag(
+            self, tag: str, attrs: list[tuple[str, str | None]]
+        ) -> None:
+            if tag == "script":
+                self.sources.extend(
+                    value for key, value in attrs if key == "src" and value
+                )
+
+    client = create_app(tmp_path).test_client()
+    parser = ScriptParser()
+    parser.feed(client.get("/").get_data(as_text=True))
+    assert parser.sources == [
+        "/static/vendor/vue-3.5.13/vue.global.prod.js",
+        "/static/vendor/brython-3.15.0/brython.min.js",
+        "/static/vendor/brython-3.15.0/brython_stdlib.js",
+    ]
+    for source in parser.sources:
+        response = client.get(source)
+        assert response.status_code == 200
+        assert response.mimetype is not None
+        assert "javascript" in response.mimetype
+        assert len(response.data) > 100_000
 
 
 def test_reads_and_refreshes_selected_file(tmp_path: Path) -> None:

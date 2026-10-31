@@ -39,8 +39,8 @@ Click **Refresh** to load edits made outside the app.
 
 Server binds to localhost with debug mode off. Only the selected todo file is
 exposed through the API; this is not a file browser. Writes require a page-specific
-edit token, and requests are restricted to localhost hostnames. Keep this app local. Vue and Brython load from
-pinned CDN URLs, so the browser needs internet access.
+edit token, and requests are restricted to localhost hostnames. Keep this app local. Vue and Brython are bundled and served locally, so no
+internet connection is needed after installation.
 
 ## Visual timer
 

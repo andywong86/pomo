@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ filename }} · pomo</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <script defer src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/brython@3.13.0/brython.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/brython@3.13.0/brython_stdlib.js"></script>
+    <script defer src="{{ url_for('static', filename='vendor/vue-3.5.13/vue.global.prod.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='vendor/brython-3.15.0/brython.min.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='vendor/brython-3.15.0/brython_stdlib.js') }}"></script>
   </head>
   <body onload="brython()">
     <main id="app" v-cloak>
